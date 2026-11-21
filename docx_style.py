@@ -28,7 +28,8 @@ def set_run(run, cn=SONG, en=TNR, size=12, bold=False):
     rFonts.set(qn("w:eastAsia"), cn)
 
 
-TOKEN = re.compile(r"([A-Za-z0-9νχΣ)])([_^])\{([^}]*)\}")
+GREEK = "νχφμσαβγδεθλρτωςΣΔΩ"
+TOKEN = re.compile(r"([A-Za-z0-9%s)])([_^])\{([^}]*)\}" % GREEK)
 
 
 def add_rich(p, text, cn=SONG, en=TNR, size=12, bold=False):
