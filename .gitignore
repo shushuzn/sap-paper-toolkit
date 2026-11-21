@@ -1,0 +1,26 @@
+# ---------- 论文数据层 ----------
+# 数据层含具体论文的文献与表格，随论文变化，不入库
+paper_data.py
+
+# ---------- 脚本运行产物 ----------
+audit_refs.json
+xcheck_report.json
+xcheck_cache.json
+__pycache__/
+*.pyc
+
+# ---------- 生成的交付件 ----------
+# 由 build_docx.py 生成，不入库
+*.docx
+
+# ---------- 草稿备份与临时件 ----------
+*.bak
+*.bak_*
+*.orig
+*~
+~$*
+*.tmp
+/chk*.pdf
+/chk*.png
+/_*.pdf
+/_*.png

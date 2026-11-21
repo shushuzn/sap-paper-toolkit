@@ -1,0 +1,17 @@
+# 二进制文件不做行尾转换
+*.docx binary
+*.pdf binary
+*.png binary
+
+# 脚本与配置强制 LF：CRLF 会让 shell 钩子无法执行，也会污染 .gitignore 与 pathspec 匹配
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.githooks/** text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+
+# skill 源以仓库为准，安装位置由脚本镜像：两边保持同一行尾，cksum 比对才有意义
+skills/** text eol=lf
+
+# 其余文本按自动识别
+* text=auto

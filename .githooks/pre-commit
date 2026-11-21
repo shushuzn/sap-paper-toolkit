@@ -1,0 +1,84 @@
+#!/bin/sh
+# pre-commit：拦截不该进论文版本库的文件
+# 安装：git config core.hooksPath .githooks
+# 绕过：仅限确有必要时 GIT_SKIP_REPO_GUARD=1 git commit ...
+
+[ "$GIT_SKIP_REPO_GUARD" = "1" ] && exit 0
+
+fail=0
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+
+report() {
+    printf '  ✗ %-46s %s\n' "$1" "$2"
+    fail=1
+}
+
+echo "[repo-guard] 检查暂存区..."
+
+for f in $staged; do
+    # 1. 草稿备份：版本历史由 git 负责
+    case "$f" in
+        *.bak|*.bak_*|*.bak-*|*.orig|*~)
+            report "$f" "草稿备份，不应入库（回退用 git checkout）" ; continue ;;
+    esac
+
+    # 2. 临时校验产物
+    case "$f" in
+        chk*.pdf|chk*.png|_*.pdf|_*.png|w[0-9]*.pdf|p[0-9]*.png|tmp/*|.tmpcmp/*)
+            report "$f" "临时渲染/截图产物，随用随删" ; continue ;;
+    esac
+
+    # 3. 教学材料：只可本地阅读，不入论文仓库
+    case "$f" in
+        lecture*/*|teaching*/*|slides*/*)
+            report "$f" "教学材料，按禁令不得入库；请 git rm --cached" ; continue ;;
+    esac
+
+    # 4. Office 临时与锁文件
+    case "$f" in
+        '~$'*|*.tmp)
+            report "$f" "Office 临时文件" ; continue ;;
+    esac
+
+    # 5. 体积上限 2 MB（交付 docx、参考文献 PDF 均远低于此）
+    if [ -f "$f" ]; then
+        size=$(wc -c < "$f" | tr -d ' ')
+        if [ "$size" -gt 2097152 ]; then
+            report "$f" "超过 2 MB（$((size/1024)) KB），确认是否为交付件"
+        fi
+    fi
+done
+
+# 6. skill 漂移：仓库内 skills/ 是唯一源，安装位置须与之一致
+#    未安装时脚本返回 0，不阻断；已安装而不一致时才拦
+if [ -f skills/sync_skill.sh ]; then
+    if ! drift_out=$(sh skills/sync_skill.sh check 2>&1); then
+        printf '%s\n' "$drift_out" | sed 's/^/     /'
+        report "skills/" "安装位置与仓库不一致；执行 sh skills/sync_skill.sh install"
+    fi
+fi
+
+# 7. 规则自检：文档列举的禁令与检测器的词表、正则是否仍然一致
+#    只依赖 python 标准库；没有 python 的解释器时跳过，不阻断
+selftest=skills/academic-paper-improvement/scripts/selftest.py
+if [ -f "$selftest" ]; then
+    py=""
+    if command -v python3 >/dev/null 2>&1; then
+        py=python3
+    elif command -v python >/dev/null 2>&1; then
+        py=python
+    fi
+    if [ -n "$py" ]; then
+        if ! st_out=$("$py" "$selftest" --quiet 2>&1); then
+            printf '%s\n' "$st_out" | sed 's/^/     /'
+            report "$selftest" "规则自检未通过；文档与检测器已不一致"
+        fi
+    fi
+fi
+
+if [ "$fail" -ne 0 ]; then
+    echo "[repo-guard] 提交已阻止。修正后重试；如确需提交，用 GIT_SKIP_REPO_GUARD=1 并说明理由。"
+    exit 1
+fi
+echo "[repo-guard] 通过"
+exit 0
