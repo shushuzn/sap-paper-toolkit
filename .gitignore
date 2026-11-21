@@ -2,6 +2,11 @@
 # 数据层含具体论文的文献与表格，随论文变化，不入库
 paper_data.py
 
+# ---------- 公开版禁用词 ----------
+# 本项目专属的禁用词（机构名、院系名、人员名等），入钩子做拦截，
+# 本身不入库。模板见 .publish-deny.example
+.publish-deny
+
 # ---------- 脚本运行产物 ----------
 audit_refs.json
 xcheck_report.json

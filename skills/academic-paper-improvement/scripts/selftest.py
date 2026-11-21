@@ -28,6 +28,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUDIT = os.path.join(HERE, "audit_manuscript.py")
 SKILL = os.path.join(HERE, os.pardir, "SKILL.md")
+ROOT = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir, os.pardir))
 
 
 def load_audit():
@@ -168,6 +169,65 @@ def part_c(mod):
                                               sorted(code_forms - doc_forms)))
 
 
+# ---------- D 共用解析层 ----------
+def load_io():
+    """manuscript_io.py 在仓库根目录。skill 被单独安装到别处时找不到，
+    本组断言跳过：安装位置只镜像 skill 目录，不带根目录的脚本。"""
+    for base in (ROOT, HERE):
+        p = os.path.join(base, "manuscript_io.py")
+        if os.path.exists(p):
+            spec = importlib.util.spec_from_file_location("manuscript_io", p)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+    return None
+
+
+def part_d():
+    import types
+
+    mio = load_io()
+    if mio is None:
+        print("（跳过解析层断言：未找到 manuscript_io.py）")
+        return
+
+    paras = [
+        "# 题名",
+        "## 摘要",
+        "摘要正文一句。",
+        "关键词：甲；乙；丙",
+        "## Abstract",
+        "Abstract body.",
+        "Key words: a; b; c",
+        "# 1　引言",
+        "正文见文献[1]。",
+        "# 参考文献",
+        "[1] 作者. 题名[J]. 刊名, 2020, 1(2): 3-4.",
+        "续行文字并入上一条。",
+    ]
+    st = mio.split_structure(paras, None)
+    record("D1 关键词取同段冒号之后",
+           st["keywords_cn"] == "关键词：甲；乙；丙",
+           "实为 %r" % (st["keywords_cn"],))
+    record("D2 正文切到参考文献之前",
+           "作者. 题名" not in (st["body"] or ""),
+           "正文尾部：%r" % ((st["body"] or "")[-30:],))
+    record("D3 摘要取标题下一段而非标题本身",
+           st["abstract_cn"] == "摘要正文一句。",
+           "实为 %r" % (st["abstract_cn"],))
+
+    items = mio.refs_from_paragraphs(paras, 9)
+    record("D4 无编号续行并入上一条",
+           len(items) == 1 and "续行" in items[0][1],
+           "实为 %r" % (items,))
+
+    fake = types.SimpleNamespace(SECTIONS={"references": ("引用文献",)})
+    st2 = mio.split_structure(["# 1　引言", "正文。", "引用文献", "[1] 条目."], fake)
+    record("D5 数据层 SECTIONS 覆盖默认章节名",
+           st2["index"]["references"] == 2,
+           "实为 %r" % (st2["index"],))
+
+
 def main():
     ap = argparse.ArgumentParser(description="规则自检：文档列举与检测器实现是否一致")
     ap.add_argument("--quiet", action="store_true", help="只打印失败项与小结")
@@ -177,6 +237,7 @@ def main():
     part_a(mod)
     part_b(mod)
     part_c(mod)
+    part_d()
 
     failed = [(n, note) for n, ok, note in results if not ok]
     if not args.quiet:

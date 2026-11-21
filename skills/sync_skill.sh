@@ -1,33 +1,34 @@
 #!/bin/sh
-# sync_skill.sh  把仓库内的 skill 镜像到 WorkBuddy 安装目录
+# sync_skill.sh  把仓库内的 skill 镜像到安装目录
 #
-# 仓库是唯一源：skill 的正文、参考文件与核验脚本都改在 skills/<name>/ 下，
+# 仓库是唯一源：skill 的正文、参考文件与核验脚本都改在源码目录下，
 # 安装目录只作为部署结果存在，不直接编辑。
 #
 # 用法：
-#   sh skills/sync_skill.sh install     仓库 → 安装位置（默认动作，镜像，多余的删除）
-#   sh skills/sync_skill.sh check       只比对，有漂移退出 1；未安装时退出 0
-#   sh skills/sync_skill.sh diff        列出差异文件，不做写入
-#   sh skills/sync_skill.sh pull --yes  安装位置 → 仓库（安装处临时改过时回收）
+#   sh sync_skill.sh install     仓库 → 安装位置（默认动作，镜像，多余的删除）
+#   sh sync_skill.sh check       只比对，有漂移退出 1；未安装时退出 0
+#   sh sync_skill.sh diff        列出差异文件，不做写入
+#   sh sync_skill.sh pull --yes  安装位置 → 仓库（安装处临时改过时回收）
 #
 # 选项：
-#   --dry-run               只报告，不写入
-#   --no-prune              install 时不删除安装位置里的多余文件
-#   --skills-home <dir>     覆盖安装根目录
-#   --yes                   pull 的确认开关
+#   --src <dir>              skill 源码目录，默认为脚本所在目录或其下唯一的 skill 目录
+#   --name <name>            安装目录下的目录名，默认取源码目录名
+#   --dry-run                只报告，不写入
+#   --no-prune               install 时不删除安装位置里的多余文件
+#   --skills-home <dir>      覆盖安装根目录
+#   --yes                    pull 的确认开关
 #
 # 环境变量：
-#   WORKBUDDY_SKILLS_HOME  安装根目录，默认 ~/.workbuddy/skills
+#   SKILLS_HOME              安装根目录，默认为 ~/.workbuddy/skills
 #
 # 退出码：0 成功或无漂移；1 有漂移或操作失败；2 用法错误
 
 set -u
 
-SKILL_NAME=academic-paper-improvement
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-SRC=$SCRIPT_DIR/$SKILL_NAME
-SKILLS_HOME=${WORKBUDDY_SKILLS_HOME:-$HOME/.workbuddy/skills}
-DST=$SKILLS_HOME/$SKILL_NAME
+SRC_OPT=
+SKILL_NAME=
+INSTALL_HOME=${SKILLS_HOME:-$HOME/.workbuddy/skills}
 
 cmd=
 dry_run=0
@@ -36,6 +37,8 @@ confirmed=0
 
 die() { printf '[sync] %s\n' "$1" >&2 ; exit 2 ; }
 
+usage() { sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' ; }
+
 # ---------- 参数 ----------
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -43,21 +46,48 @@ while [ $# -gt 0 ]; do
         --dry-run)   dry_run=1 ;;
         --no-prune)  prune=0 ;;
         --yes)       confirmed=1 ;;
-        --skills-home)
-            [ $# -ge 2 ] || die "--skills-home 需要一个目录参数"
-            SKILLS_HOME=$2
-            DST=$SKILLS_HOME/$SKILL_NAME
+        --src|--name|--skills-home)
+            [ $# -ge 2 ] || die "$1 需要一个参数"
+            case "$1" in
+                --src)          SRC_OPT=$2 ;;
+                --name)         SKILL_NAME=$2 ;;
+                --skills-home)  INSTALL_HOME=$2 ;;
+            esac
             shift ;;
-        -h|--help)
-            sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
-            exit 0 ;;
+        -h|--help) usage ; exit 0 ;;
         *) die "未知参数：$1（用 --help 看用法）" ;;
     esac
     shift
 done
 [ -n "$cmd" ] || cmd=install
 
-[ -d "$SRC" ] || die "仓库内找不到 skill 目录：$SRC"
+# ---------- 定位源码目录 ----------
+has_skill_md() { [ -f "$1/SKILL.md" ] ; }
+
+if [ -n "$SRC_OPT" ]; then
+    SRC=$SRC_OPT
+    [ -d "$SRC" ] || die "源码目录不存在：$SRC"
+elif has_skill_md "$SCRIPT_DIR"; then
+    # 脚本就放在 skill 目录里
+    SRC=$SCRIPT_DIR
+else
+    # 脚本放在 skill 目录的上一级：取唯一含 SKILL.md 的子目录
+    SRC=
+    for d in "$SCRIPT_DIR"/*/; do
+        [ -d "$d" ] || continue
+        d=${d%/}
+        if has_skill_md "$d"; then
+            [ -z "$SRC" ] || die "同级有多个 skill 目录，用 --src 指定其一：
+  $SRC
+  $d"
+            SRC=$d
+        fi
+    done
+    [ -n "$SRC" ] || die "在 $SCRIPT_DIR 下找不到含 SKILL.md 的 skill 目录，用 --src 指定"
+fi
+
+[ -n "$SKILL_NAME" ] || SKILL_NAME=$(basename "$SRC")
+DST=$INSTALL_HOME/$SKILL_NAME
 
 tmp=$(mktemp -d 2>/dev/null) || die "无法创建临时目录"
 trap 'rm -rf "$tmp"' EXIT INT TERM
@@ -123,7 +153,7 @@ run_compare() {
     fi
     printf '[sync] 漂移：缺少 %d，内容不同 %d，多余 %d\n' "$missing" "$changed" "$extra"
     if [ "$mode" = check ]; then
-        printf '[sync] 执行 sh skills/sync_skill.sh install 使安装位置与仓库一致。\n'
+        printf '[sync] 执行 sh %s install 使安装位置与仓库一致。\n' "$0"
     fi
     return 1
 }
@@ -171,7 +201,7 @@ run_pull() {
     [ -d "$DST" ] || die "安装位置不存在，无可回收内容：$DST"
     if [ "$confirmed" -ne 1 ]; then
         printf '[sync] pull 会用安装位置的版本覆盖仓库文件，需加 --yes 确认。\n' >&2
-        printf '[sync] 先跑 sh skills/sync_skill.sh diff 看差异。\n' >&2
+        printf '[sync] 先跑 sh %s diff 看差异。\n' "$0" >&2
         return 2
     fi
     list_files "$DST" > "$tmp/dst"

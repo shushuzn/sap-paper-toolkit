@@ -13,5 +13,9 @@
 # skill 源以仓库为准，安装位置由脚本镜像：两边保持同一行尾，cksum 比对才有意义
 skills/** text eol=lf
 
+# 禁用词表由钩子逐行当正则读，行尾带 CR 会让模式失配
+.publish-deny text eol=lf
+.publish-deny.example text eol=lf
+
 # 其余文本按自动识别
 * text=auto

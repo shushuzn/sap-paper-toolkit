@@ -76,6 +76,47 @@ if [ -f "$selftest" ]; then
     fi
 fi
 
+# 8. 公开版禁令：不得出现可定位到具体对象的内容
+#    内置两项通用检查（四位年份、规范代号实体）；机构名、院系名、
+#    人员名这类无法通用判定的，写进根目录 .publish-deny，一行一个。
+#    该文件不入库，避免"为了拦截而把敏感词写进公开仓库"。
+for f in $staged; do
+    case "$f" in
+        *.md|*.py|*.sh|*.example.py|*.txt) ;;
+        *) continue ;;
+    esac
+    [ -f "$f" ] || continue
+
+    # 四位年份。豁免 XML 命名空间与 URI（标准标识，不含写作年或文献年）
+    hits=$(grep -nE '\b(19|20)[0-9]{2}\b' "$f" 2>/dev/null \
+        | grep -v 'schemas\.openxmlformats\.org' \
+        | grep -vE 'https?://|urn:|xmlns')
+    if [ -n "$hits" ]; then
+        printf '%s\n' "$hits" | sed 's/^/     /'
+        report "$f" "含四位年份：公开版不写写作年、文献年与版本年"
+    fi
+
+    # 规范代号实体（代号紧跟序号）。公开版只写核验维度，不写具体编号
+    hits=$(grep -nE '\b(GB|ISO|ASTM|JIS|DIN|ANSI|IEC|EN)[ /]?[0-9]{2,}' "$f" 2>/dev/null)
+    if [ -n "$hits" ]; then
+        printf '%s\n' "$hits" | sed 's/^/     /'
+        report "$f" "含规范代号实例：公开版不写编号，改用核验维度表述"
+    fi
+
+    # 本地追加词：一行一个，支持正则
+    if [ -f .publish-deny ]; then
+        while IFS= read -r pat; do
+            pat=$(printf '%s' "$pat" | tr -d '\r')
+            case "$pat" in ''|'#'*) continue ;; esac
+            hits=$(grep -nE "$pat" "$f" 2>/dev/null)
+            if [ -n "$hits" ]; then
+                printf '%s\n' "$hits" | sed 's/^/     /'
+                report "$f" "命中本地禁用词：$pat"
+            fi
+        done < .publish-deny
+    fi
+done
+
 if [ "$fail" -ne 0 ]; then
     echo "[repo-guard] 提交已阻止。修正后重试；如确需提交，用 GIT_SKIP_REPO_GUARD=1 并说明理由。"
     exit 1

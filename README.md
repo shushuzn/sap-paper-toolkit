@@ -8,21 +8,25 @@
 
 本仓库不含任何具体论文的正文、成稿、机构格式文件、作者与年份信息。规则文件里的参数是通用量级，实际使用须以任务方提供的原件核对；排版函数库只提供函数，不提供任何论文的题名、表格与公式内容。规范编号一律不写死，按领域向原文核对。
 
+这条约束不只靠自觉。`pre-commit` 第 8 项做两项通用检查：四位年份（豁免 XML 命名空间与 URI 这类标准标识）、规范代号实体（代号紧跟序号）。机构名、院系名、人员名、产品型号、校内项目编号无法通用判定，写进根目录的 `.publish-deny`，一行一个正则，由钩子逐条拦截。该文件本身已被 `.gitignore` 排除：为了拦截而把敏感词写进公开仓库，是这类约束最常见的自毁方式。
+
 ## 内容
 
 | 路径 | 作用 |
 |---|---|
 | `docx_style.py` | python-docx 的中文科技论文排版函数库：字体组合、富文本上下标、三线表、OMML 公式、页脚页码 |
 | `demo.py` | 上面函数库的最小示例，生成 `demo.docx` |
-| `audit_doc.py` | 源文件结构检查：摘要与关键词、标题编号连续性、图表与公式引用、缩略语首次出现 |
-| `audit_refs.py` | 文献表自查：键名重复、著录字段完整性、类型标识缺失 |
+| `manuscript_io.py` | 各核验脚本共用的定位与解析层：稿件与数据层的查找、章节切分、文献条目拆分 |
+| `audit_doc.py` | 结构检查：源文件查摘要与关键词、标题层级、引文键名；成稿查图表与公式编号、引文编号 |
+| `audit_refs.py` | 文献条目审计：类型标识、作者段、卷期页、标点、编号连续性，条目可取自数据层或稿件文献段 |
 | `xcheck_refs.py` | 按题名向 Crossref 回查每条文献的元数据，逐字段比对，结果写 `xcheck_report.json` |
-| `count_words.py` | 用 Word 自身的统计口径统计正文（引言至结论）的字数、字符数、页数 |
+| `count_words.py` | 正文篇幅统计，两条通道：直接解析文本，或调用本机文字处理软件的统计口径 |
 | `paper_data.example.py` | 数据层模板：文献表与表格数据，供上面几个脚本读取 |
 | `skills/academic-paper-improvement/` | 写作与审校规则集：六条硬性禁令、证据四级、诊断流程、反编造核验、仓库卫生 |
 | `skills/academic-paper-improvement/scripts/selftest.py` | 规则自检：禁令列举与检测器词表、正则是否仍然一致 |
-| `skills/sync_skill.sh` | 把仓库里的 skill 镜像到本地安装位置，支持 install／check／diff／pull |
-| `.githooks/pre-commit` | 提交拦截：草稿备份、临时渲染件、超 2 MB 文件、skill 与安装位置漂移、规则自检 |
+| `skills/sync_skill.sh` | 把仓库里的 skill 镜像到本地安装位置，支持 install／check／diff／pull，skill 名自动识别 |
+| `.publish-deny.example` | 本地禁用词表模板：机构名、人员名这类无法通用判定的词，复制为 `.publish-deny` 后由钩子拦截 |
+| `.githooks/pre-commit` | 提交拦截：草稿备份、临时渲染件、超 2 MB 文件、skill 与安装位置漂移、规则自检、公开版禁用内容 |
 
 ## 依赖
 
@@ -30,13 +34,15 @@
 pip install python-docx
 ```
 
-`count_words.py` 另需 `pywin32`，且只能在装有 Microsoft Word 的 Windows 上运行。其余脚本只用标准库。
+`count_words.py` 的 word 通道另需 `pywin32`，且只能在装有 Microsoft Word 的 Windows 上运行；plain 通道只用标准库，跨平台可用。其余脚本只用标准库。
 
 ## 快速开始
 
 ```bash
 cp paper_data.example.py paper_data.py    # 填入自己的文献表
-python audit_refs.py                      # 文献表自查
+python audit_refs.py                      # 文献条目审计
+python audit_doc.py manuscript.md         # 源文件结构检查
+python count_words.py --engine plain      # 篇幅统计（不依赖 Word）
 python demo.py                            # 生成 demo.docx，看排版效果
 python skills/academic-paper-improvement/scripts/audit_manuscript.py demo.docx
 python skills/academic-paper-improvement/scripts/selftest.py   # 规则自检
@@ -44,7 +50,7 @@ python skills/academic-paper-improvement/scripts/selftest.py   # 规则自检
 
 `audit_manuscript.py` 的字数与文献下限由命令行给定，默认值只作演示，短示例会报 FAIL，属预期。
 
-## 自己写稿件时怎么接
+## 排版函数库怎么用
 
 排版函数库不绑定任何输入格式，直接调用即可：
 
@@ -60,7 +66,28 @@ three_line_table(doc, data, "表 1　题名", [3.2, 5.4, 5.4])
 doc.save("out.docx")
 ```
 
-`audit_doc.py` 读 Markdown 源文件（默认 `manuscript.md`，可传路径），约定：一级标题 `# 1 引言`，二级 `## 2.1 …`，摘要段以 `## 摘要` 开头，关键词行以 `关键词` 开头，文献引用写 `[@键名]`。缩略语表与文献总条数由同目录 `paper_data.py` 的 `ABBR`、`REF_TOTAL` 提供，未提供则跳过。
+## 核验脚本怎么接稿件
+
+四个核验脚本共用 `manuscript_io.py`，位置与结构都不写死：
+
+- **稿件位置**：位置参数 → 环境变量 `PAPER_SRC` → 当前目录唯一的 `.md`/`.docx`。多个候选时脚本会报错并列出，不替你猜。
+- **数据层位置**：`--data` → 环境变量 `PAPER_DATA` → 当前目录的 `paper_data.py`。找不到就跳过依赖数据层的检查，不填默认值。
+- **两种模式**：稿件带 Markdown 标题标记时走结构模式，检查摘要、关键词、标题层级，引文按键名比对文献表；没有标记（如 `.docx` 成稿）时走成稿模式，跳过需要标题的检查，改查图表与公式编号、引文编号是否连续与越界。两种模式都不预设编号数量，按正文实际提及统计。
+- **章节叫法**：默认名是体裁通用叫法。稿件用别的叫法时，在数据层写 `SECTIONS` 覆盖，不必改脚本：
+
+```python
+SECTIONS = {
+    "abstract_cn": ("提要",),          # 默认 ("摘要",)
+    "keywords_cn": ("关键字",),        # 默认 ("关键词",)
+    "abstract_en": ("Summary",),       # 默认 ("Abstract",)
+    "keywords_en": ("Index Terms",),   # 默认 ("Key words", "Keywords")
+    "references": ("引用文献",),        # 默认 ("参考文献", "References")
+}
+```
+
+数据层还可选给 `ABBR`（缩略语清单，查首次出现）、`REF_TOTAL`（文献总条数，查缺号与越界）。不给这两项时对应检查跳过，其余照常。
+
+成稿模式的正文分界按"参考文献"字样定位。若成稿里没有这个字样，整篇都按正文统计，脚本会提示该情形下编号检查偏松。
 
 ## skill 怎么用
 
@@ -111,8 +138,9 @@ python skills/academic-paper-improvement/scripts/selftest.py --quiet   # 只打�
 
 ## 已知限制
 
-- `count_words.py` 只能在 Windows + Word 环境运行；其他平台可跳过，改用 `audit_manuscript.py` 的汉字统计。
-- `xcheck_refs.py` 依赖 Crossref 的题名匹配，中文文献与规范类文件通常查不到，会报"未匹配"，属预期行为。它的 User-Agent 带联系邮箱可获得更宽松的速率限制，用环境变量设置：`CROSSREF_MAILTO=you@example.com python xcheck_refs.py`。
+- `count_words.py` 两条通道口径不同，不可混用。plain 通道统计的是字符类别，不是文字处理软件报出的"字数"；word 通道只在 Windows + Word 可用。源文件若不含表格文字（表格由数据层单独提供），plain 通道不计这部分，与成稿的差值通常来自此，需计表格时以成稿为准。
+- 成稿模式靠"参考文献"字样切正文，靠正文里的"表/图/式"字样统计编号。标题若是手工排版（没有套用 Heading 样式），脚本不会把它识别成标题，因此成稿只做文字层检查；结构检查请在源文件上做。
+- `xcheck_refs.py` 依赖 Crossref 的题名匹配。规范类条目、中文题名条目、其他非期刊条目直接跳过并在汇总里计数，**这些条目未做回查，不得计入通过**。它的 User-Agent 带联系邮箱可获得更宽松的速率限制，用环境变量设置：`CROSSREF_MAILTO=you@example.com python xcheck_refs.py`。
 - python-docx 每次生成的 .docx 字节级不一致（文档属性里带生成时间），比较内容请比字数与结构，不要比 md5。
 - 正则检测只能拦住列举过的形态。新出现的表述要补规则；补完跑 `selftest.py`，正样本必须命中、负样本必须不命中，两份都过了才算补上。这条是实测教训：首版正则漏掉一种形态，它既不被相邻形态匹配，也不被主形态匹配，读一遍正则看不出问题。
 
