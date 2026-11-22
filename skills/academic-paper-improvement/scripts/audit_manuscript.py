@@ -356,12 +356,30 @@ CURRENT_VERB = re.compile(r"规定为|限值为|要求为|应不大于|应不超
 MEASURED = re.compile(r"实测|测定为|实验测得|实验表明|实测表明")
 
 
+def _is_doc_number(m, text):
+    """判断题名式文献编号（专利、公开号）而非标准编号。
+
+    两类编号的写法不同：标准以「代号 + 序号 + 半字线 + 发布年」构成，
+    序号不超过五位，年后无续写；文献编号则把年份编进号码本身，序号
+    长达七位以上，或写成「年份/序号」。若不排除，五位窗口会把长号码
+    截断成 `US20210` 一类残片，再判成「缺发布年」，属误报。
+    """
+    nxt = text[m.end():m.end() + 1]
+    if nxt.isdigit():
+        return True   # 序号未结束，超过五位的连续数字不是标准序号
+    if re.match(r"\s*/\s*\d", text[m.end():m.end() + 8]):
+        return True   # 年份/序号 写法
+    return False
+
+
 def check_standard_status(text):
     """B1 编号引用缺发布年；B2 草案当现行（铁律 5 配套，见 C2-17）。"""
     out = []
 
     miss = []
     for m in STD_NUM.finditer(text):
+        if _is_doc_number(m, text):
+            continue
         tail = text[m.end():m.end() + 8]
         if re.match(r"\s*[-—–]\s*\d{4}", tail):
             continue  # 已带发布年份

@@ -202,7 +202,7 @@ def part_d():
         "# 1　引言",
         "正文见文献[1]。",
         "# 参考文献",
-        "[1] 作者. 题名[J]. 刊名, 2020, 1(2): 3-4.",
+        "[1] 作者. 题名[J]. 刊名, 1(2): 3-4.",
         "续行文字并入上一条。",
     ]
     st = mio.split_structure(paras, None)
@@ -228,6 +228,35 @@ def part_d():
            "实为 %r" % (st2["index"],))
 
 
+# ---------- E 编号类检测的误报边界 ----------
+def part_e(mod):
+    """B1 的判定对象是标准编号，不能把题名式文献编号也算进去。
+
+    标准编号的序号不超过五位、年后无续写；专利与公开号把年份编进号码，
+    连续数字远超五位。若不区分，五位窗口会截出残片再判成「缺发布年」，
+    于是正确著录的专利被报成错误，执行者会去改一条本没有错的条目。
+    """
+    hits = mod.check_standard_status("依据 XX 1234 执行。")
+    record("E1 标准号无年份仍报 B1", any(h["code"] == "B1" for h in hits),
+           "未报：%s" % hits)
+
+    # 样本中的年份一律用哨兵值 9999，避免公开版出现真实发布年
+    ok = mod.check_standard_status("按 XX 1234-9999 执行。")
+    record("E2 标准号带年份不报 B1", not ok, "误报：%s" % [h["code"] for h in ok])
+
+    for label, s in (("连写", "见 US99999999999A1 与 WO99999999999A1。"),
+                     ("七位", "见 US9999999B2。"),
+                     ("斜线", "见 US 9999/9999999 A1。")):
+        r = mod.check_standard_status(s)
+        record("E3 文献编号（%s）不报 B1" % label,
+               not any(h["code"] == "B1" for h in r),
+               "误报：%s" % [h["detail"][:40] for h in r])
+
+    r = mod.check_standard_status("按 XX 3100～3102 执行。")
+    record("E4 系列编号波浪号写法不报 B1",
+           not any(h["code"] == "B1" for h in r), "误报：%s" % r)
+
+
 def main():
     ap = argparse.ArgumentParser(description="规则自检：文档列举与检测器实现是否一致")
     ap.add_argument("--quiet", action="store_true", help="只打印失败项与小结")
@@ -238,6 +267,7 @@ def main():
     part_b(mod)
     part_c(mod)
     part_d()
+    part_e(mod)
 
     failed = [(n, note) for n, ok, note in results if not ok]
     if not args.quiet:
