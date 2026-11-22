@@ -326,12 +326,50 @@ def check_listy(text):
     # 序号后必须跟实质内容；「（1）」单独成行是公式编号，不算条目
     lead = len(re.findall(r"^[ \t\u3000]*[（(]\d+[）)][ \t\u3000]*[^\s]", text, re.M))
     ordinals = len(re.findall(r"(第一|第二|第三|第四|第五|其一|其二|其三)[，、是]", text))
+    # 「一是…二是…」与「首先…其次…」和序数式是同一类清单化，只是不带序数词形。
+    # 只认句首，避免把「统一是」「单一是」一类误算进来。
+    chain = len(re.findall(r"[。；：][ \t\u3000]*(一是|二是|三是|四是|首先|其次|再次)", text))
     if lead:
         out.append(dict(level=WARN, code="S1", title="行首编号条目",
                         detail=f"{lead} 处；论文正文与结论宜为连贯论述，非条目清单"))
-    if ordinals >= 4:
+    if ordinals + chain >= 4:
         out.append(dict(level=WARN, code="S2", title="序数式列举",
-                        detail=f"{ordinals} 处；条目化会把论证降级为清单"))
+                        detail=f"{ordinals + chain} 处（序数 {ordinals}、一二式 {chain}）；"
+                               f"条目化会把论证降级为清单"))
+    return out
+
+
+# 元话语：作者向读者交代自己接下来打算写什么、替读者下判断、用「显然」跳过推理。
+# 这类句子不含禁用词、不是破折号、不构成对偶否定，也不触犯引注规则，前面各组
+# 检查都不会命中；它的问题是把论述变成对写作过程的叙述，读者读到的是作者的
+# 安排而非研究内容，因此单列一组。
+META = [
+    ("交代写作安排", r"值得(展开|讨论|单独)"
+                    r"|留待[^，。；]{0,12}(讨论|展开|说明|交代)"
+                    r"|下面(将|先|讨论)|接下来(将|先)|本节(将|先)"
+                    r"|本文要做的是|(不再|恕不)赘述|限于篇幅", WARN),
+    ("宣告写作决策", r"本文(认为|以为|选择|拟|打算)|笔者", WARN),
+    ("代替读者判断", r"不难(看出|发现|理解)|由此可见|显然", WARN),
+    ("模糊回指", r"(如前|如上|上文|前文|后文)所述|前文(已|中)", WARN),
+]
+
+
+def check_metadiscourse(text):
+    out = []
+    paras = para_list(text)
+    for name, pat, level in META:
+        rx = re.compile(pat)
+        hits = []
+        for i, p in enumerate(paras):
+            m = rx.search(p)
+            if m:
+                hits.append((i + 1, m.group(0)))
+        if not hits:
+            continue
+        sample = [f"段{i}「{w}」" for i, w in hits[:3]]
+        out.append(dict(level=level, code="W2", title=f"元话语·{name}",
+                        detail=f"{len(hits)} 处；{'、'.join(sample)}；"
+                               f"改为直接陈述内容，不叙述写作安排"))
     return out
 
 
@@ -454,6 +492,7 @@ def main():
     items += check_language(body)
     items += check_format(text, source_mode)
     items += check_listy(body)
+    items += check_metadiscourse(body)
     items += check_figs(body)
     items += check_standard_status(text)
     items += check_claim_strength(body)

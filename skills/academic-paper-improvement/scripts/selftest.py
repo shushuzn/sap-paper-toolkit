@@ -168,6 +168,12 @@ def part_c(mod):
                "文档独有：%s；代码独有：%s" % (sorted(doc_forms - code_forms),
                                               sorted(code_forms - doc_forms)))
 
+    # 元话语各类别名须在文档中逐一列出，否则执行者不知道要扫哪几类
+    meta_names = [n for n, _, _ in getattr(mod, "META", [])]
+    missing = [n for n in meta_names if n not in text]
+    record("元话语类别名都在 SKILL.md 列举中", meta_names and not missing,
+           "文档缺：%s（代码有、文档无，执行者不会去扫）" % missing)
+
 
 # ---------- D 共用解析层 ----------
 def load_io():
@@ -257,6 +263,47 @@ def part_e(mod):
            not any(h["code"] == "B1" for h in r), "误报：%s" % r)
 
 
+def part_g(mod):
+    """元话语：交代写作安排、宣告写作决策、代替读者判断、模糊回指。
+
+    这类句子不含禁令词、不是破折号、不构成对偶否定、也不是条目化，前面
+    各组检查一组都不会命中。若不单列，作者向读者交代"接下来写什么"的
+    句子会一路通过全部核验，而那正是论文体与非论文体的分界。
+    """
+    hits = [
+        ("铺垫", "沿此思路有两条路径值得展开。"),
+        ("留待", "该判读方式留待下一章讨论。"),
+        ("下面", "下面将给出三项措施。"),
+        ("宣告", "本文认为应优先处理这一环节。"),
+        ("代替判断", "不难看出，两者互为因果。"),
+        ("回指", "如前所述，该量随温度上升。"),
+    ]
+    for label, s in hits:
+        r = mod.check_metadiscourse(s)
+        record("G1 元话语（%s）命中 W2" % label,
+               any(h["code"] == "W2" for h in r), "未报：%s" % s)
+
+    clean = [
+        "该量随温度上升。",
+        "两种估法的差别来自参数取值。",
+        "第 4 节给出的上限约束了这一换算。",
+    ]
+    for i, s in enumerate(clean, 1):
+        r = mod.check_metadiscourse(s)
+        record("G2 直接陈述 %d 不误报" % i, not r,
+               "误报：%s" % [h["detail"][:30] for h in r])
+
+    # 「一是…二是…」不带序数词形，旧正则只认「其一」「第一」，整段清单会漏过
+    r = mod.check_listy("有三点。一是甲。二是乙。三是丙。四是丁。")
+    record("G3 一二式清单化命中 S2",
+           any(h["code"] == "S2" for h in r), "未报：%s" % r)
+
+    # 只认句首，嵌在词中的「一是」不算
+    r = mod.check_listy("统一是一个过程。单一是他。")
+    record("G4 词内一是、单是不误报 S2",
+           not any(h["code"] == "S2" for h in r), "误报：%s" % r)
+
+
 def main():
     ap = argparse.ArgumentParser(description="规则自检：文档列举与检测器实现是否一致")
     ap.add_argument("--quiet", action="store_true", help="只打印失败项与小结")
@@ -268,6 +315,7 @@ def main():
     part_c(mod)
     part_d()
     part_e(mod)
+    part_g(mod)
 
     failed = [(n, note) for n, ok, note in results if not ok]
     if not args.quiet:
