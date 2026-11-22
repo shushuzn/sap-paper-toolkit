@@ -12,8 +12,8 @@
     A 检测器能触发：每条禁令给一个正样本，命中即通过
     B 不误报：干净句子与单个连接号「—」不得触发
     C 文档与代码对齐：禁令条数、形态条数、词表内容三处互相印证
-    D–K 逐组补充：解析层、编号误报边界、元话语、摘要体裁、冗赘、
-    文体整齐度、上下标渲染，各带正负样本
+    D–L 逐组补充：解析层、编号误报边界、元话语、摘要体裁、冗赘、
+    文体整齐度、上下标渲染、命令行选项，各带正负样本
 
 用法：
     python selftest.py            # 全部用例，逐条打印
@@ -552,6 +552,50 @@ def part_k(mod):
            "误报：%r" % txt)
 
 
+def part_l():
+    """命令行选项解析：带 --data 不得被判为未知选项。
+
+    这一组针对一个真实缺陷：audit_refs.py 曾在 main() 里先校验未知选项，
+    到 gather() 才解析 --data，于是 --data 永远被判为未知选项，而帮助
+    文本明明写着它可用。四个脚本里三个顺序正确，只有一个例外，读代码
+    很难发现，只有真跑一遍命令行才暴露。
+    """
+    import subprocess
+    import tempfile
+
+    script = os.path.join(ROOT, "audit_refs.py")
+    if not os.path.exists(script):
+        record("L0 audit_refs.py 存在", False, "找不到 %s" % script)
+        return
+
+    def run(args, cwd):
+        return subprocess.run([sys.executable, script] + args, cwd=cwd,
+                              capture_output=True, text=True)
+
+    with tempfile.TemporaryDirectory() as td:
+        data = os.path.join(td, "d.py")
+        with open(data, "w", encoding="utf-8") as fh:
+            # 年份用哨兵值，避免在公开仓库里写入可定位的年份
+            fh.write('REFS = {"a": "[1] 题名[J]. 刊名, 9999, 1(1): 1-2."}\n')
+
+        r = run(["--data", data, "--json", os.path.join(td, "r.json")], td)
+        record("L1 --data 不再被判未知选项",
+               r.returncode == 0 and "未知选项" not in r.stderr,
+               "退出码 %d，stderr=%r" % (r.returncode, r.stderr[-120:]))
+        record("L2 数据层确实被使用", "数据层 REFS" in r.stdout,
+               "stdout=%r" % r.stdout[:120])
+
+        r = run(["--data"], td)
+        record("L3 --data 缺值时报缺少值",
+               r.returncode != 0 and "缺少值" in r.stderr,
+               "退出码 %d，stderr=%r" % (r.returncode, r.stderr[-80:]))
+
+        r = run(["--nope", data], td)
+        record("L4 真正未知的选项仍被拦",
+               r.returncode != 0 and "未知选项" in r.stderr,
+               "退出码 %d，stderr=%r" % (r.returncode, r.stderr[-80:]))
+
+
 def main():
     ap = argparse.ArgumentParser(description="规则自检：文档列举与检测器实现是否一致")
     ap.add_argument("--quiet", action="store_true", help="只打印失败项与小结")
@@ -568,6 +612,7 @@ def main():
     part_i(mod)
     part_j()
     part_k(mod)
+    part_l()
 
     failed = [(n, note) for n, ok, note in results if not ok]
     if not args.quiet:

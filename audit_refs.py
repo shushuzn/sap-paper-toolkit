@@ -89,9 +89,12 @@ def audit(name, text):
     return issues, warns
 
 
-def gather(argv):
-    """确定稿件与数据层，返回 (条目列表, 来源说明)。"""
-    data_path, argv = mio.pop_option(argv, "--data")
+def gather(argv, data_path=None):
+    """确定稿件与数据层，返回 (条目列表, 来源说明)。
+
+    data_path 由 main() 解析后传入。选项解析只在一处发生，否则"先校验
+    未知选项、后解析已知选项"会让带 --data 的调用被判为未知选项。
+    """
     data = mio.load_data(mio.resolve_data(data_path))
     if data is not None:
         refs = mio.refs_from_data(data)
@@ -116,11 +119,12 @@ def main(argv):
         print(__doc__)
         return 0
     json_out, argv = mio.pop_option(argv, "--json", "audit_refs.json")
+    data_path, argv = mio.pop_option(argv, "--data")
     bad = [a for a in argv if a.startswith("-")]
     if bad:
         sys.exit("未知选项：%s（用 --help 看用法）" % " ".join(bad))
 
-    refs, origin = gather(argv)
+    refs, origin = gather(argv, data_path)
     if not refs:
         sys.exit("没有可审计的条目（来源：%s）。" % origin)
     print("条目来源：%s，共 %d 条\n" % (origin, len(refs)))
