@@ -29,23 +29,27 @@ def set_run(run, cn=SONG, en=TNR, size=12, bold=False):
 
 
 GREEK = "νχφμσαβγδεθλρτωςΣΔΩ"
-TOKEN = re.compile(r"([A-Za-z0-9%s)])([_^])\{([^}]*)\}" % GREEK)
+# 底数 + 一个或多个上下标组。φ_{p}^{2} 是同一底数先下标后上标的连写，
+# 若只匹配单个后缀，第一个后缀之后剩下的 ^{2} 会以字面量留在成稿里。
+AFFIX = re.compile(r"([A-Za-z0-9%s)])((?:[_^]\{[^}]*\})+)"
+                   % GREEK)
+PAIR = re.compile(r"([_^])\{([^}]*)\}")
 
 
 def add_rich(p, text, cn=SONG, en=TNR, size=12, bold=False):
-    """支持 V_{u}、q^{5/3} 形式的上下标。"""
+    """支持 V_{u}、q^{5/3}、φ_{p}^{2} 形式的上下标，同一底数可连写多个后缀。"""
     pos = 0
-    for m in TOKEN.finditer(text):
+    for m in AFFIX.finditer(text):
         if m.start() > pos:
             set_run(p.add_run(text[pos:m.start()]), cn, en, size, bold)
-        base = m.group(1)
-        set_run(p.add_run(base), cn, en, size, bold)
-        r = p.add_run(m.group(3))
-        set_run(r, cn, en, size, bold)
-        if m.group(2) == "_":
-            r.font.subscript = True
-        else:
-            r.font.superscript = True
+        set_run(p.add_run(m.group(1)), cn, en, size, bold)
+        for kind, body in PAIR.findall(m.group(2)):
+            r = p.add_run(body)
+            set_run(r, cn, en, size, bold)
+            if kind == "_":
+                r.font.subscript = True
+            else:
+                r.font.superscript = True
         pos = m.end()
     if pos < len(text):
         set_run(p.add_run(text[pos:]), cn, en, size, bold)

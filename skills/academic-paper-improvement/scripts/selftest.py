@@ -12,7 +12,8 @@
     A 检测器能触发：每条禁令给一个正样本，命中即通过
     B 不误报：干净句子与单个连接号「—」不得触发
     C 文档与代码对齐：禁令条数、形态条数、词表内容三处互相印证
-    D–H 逐组补充：解析层、编号误报边界、元话语、摘要体裁，各带正负样本
+    D–K 逐组补充：解析层、编号误报边界、元话语、摘要体裁、冗赘、
+    文体整齐度、上下标渲染，各带正负样本
 
 用法：
     python selftest.py            # 全部用例，逐条打印
@@ -503,6 +504,54 @@ def part_j():
     record("J7 四项指标名都在 SKILL.md", not miss, "文档缺：%s" % miss)
 
 
+def part_k(mod):
+    """富文本上下标：同一底数连写多个后缀。
+
+    φ_{p}^{2} 是先下标后上标，旧解析只吃一个后缀，剩下的 ^{2} 以字面量
+    留在成稿里。这类残留源稿检查看不出来：源稿本来就该带标记，只有成稿
+    才要求渲染。所以用例必须走真正的 add_rich，而不是只测正则。
+    """
+    try:
+        from docx import Document
+    except ImportError:
+        record("K0 缺 python-docx，渲染用例跳过", True, "未安装 docx 依赖")
+        return
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+    try:
+        import docx_style as ds
+    except Exception as exc:
+        record("K0 docx_style 可导入", False, str(exc))
+        return
+
+    m = ds.AFFIX.search("φ_{p}^{2}")
+    pairs = ds.PAIR.findall(m.group(2)) if m else []
+    record("K1 连写后缀两段都识别",
+           bool(m) and m.group(1) == "φ" and len(pairs) == 2,
+           "识别为 %r" % (pairs,))
+
+    p = Document().add_paragraph()
+    ds.add_rich(p, "平衡时 φ_{p}^{2} 与 V_{u} 同时出现")
+    txt = p.text
+    record("K2 成稿无标记残留", "{" not in txt and "^" not in txt,
+           "残留：%r" % txt)
+
+    subs = [r.text for r in p.runs if r.font.subscript]
+    sups = [r.text for r in p.runs if r.font.superscript]
+    record("K3 下标与上标都落到 run 上",
+           subs == ["p", "u"] and sups == ["2"], "sub=%r sup=%r" % (subs, sups))
+
+    leaked = mod.check_format("甲 φ_{p}^{2} 乙", source_mode=False)
+    record("K4 残留标记被判 FAIL",
+           any(i["code"] == "F4" and i["level"] == mod.FAIL for i in leaked),
+           "check_format 未报 F4：%s" % [i["code"] for i in leaked])
+
+    ok = mod.check_format(txt, source_mode=False)
+    record("K5 渲染后的文字不误报",
+           not any(i["code"] == "F4" for i in ok),
+           "误报：%r" % txt)
+
+
 def main():
     ap = argparse.ArgumentParser(description="规则自检：文档列举与检测器实现是否一致")
     ap.add_argument("--quiet", action="store_true", help="只打印失败项与小结")
@@ -518,6 +567,7 @@ def main():
     part_h(mod)
     part_i(mod)
     part_j()
+    part_k(mod)
 
     failed = [(n, note) for n, ok, note in results if not ok]
     if not args.quiet:

@@ -1,6 +1,6 @@
 ---
 name: academic-paper-improvement
-version: "1.9.0"
+version: "1.9.1"
 display_name: "论文改进（按真实要求）"
 display_name_en: "Academic Paper Improvement (Evidence-Traced)"
 description_zh: "按可追溯的真实要求改进中文学术论文：先执行六条硬性禁令（禁教学口吻词、禁破折号、禁脚本批量替换、禁以教学材料为数据与引用来源、禁 git add -A 全量提交、禁对偶否定句式），再按证据四级（E1 逐字／E2 量级／E3 可复算／E4 定性）校准论断强度，要求摘要与结论的措辞不得强于正文最弱的一条证据，并按任务方要求、机构格式文件、公开规范三层依据逐处给出原文—改文—依据，禁止编造文献、数据与规范条文，配机械核验脚本与仓库卫生机制。"

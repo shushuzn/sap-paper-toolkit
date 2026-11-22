@@ -33,7 +33,7 @@ para(doc, "关键词：排版；三线表；公式", KAI, TNR, 10.5)
 # 一级标题：楷体加粗四号（14 磅）居中
 para(doc, "1 引言", KAI, TNR, 14, True,
      WD_ALIGN_PARAGRAPH.CENTER, before=6, after=6, line=None)
-para(doc, "正文用宋体五号，上标与下标由 add_rich 自动解析，例如 x^{2} 与 y_{0}。",
+para(doc, "正文用宋体五号，上标与下标由 add_rich 自动解析，例如 x^{2}、y_{0} 与 φ_{p}^{2}。",
      SONG, TNR, 10.5, first_indent=21)
 
 # 三线表：表题在表上方，线型由三线表函数处理
