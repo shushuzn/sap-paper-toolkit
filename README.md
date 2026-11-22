@@ -129,6 +129,17 @@ git config core.hooksPath .githooks
 
 第三类来自一次实际教训：列举补到九种，计数仍写旧数，几处同时写错，而当时的全部核验都是通过的。现在这类漂移会在 `selftest.py` 与 `pre-commit` 第 7 项同时报出。
 
+表外还有几组不属于禁令、但可机械判定的检查：`W1` 风险表述（应试语、第一人称、无出处断言、绝对化）、`W2` 元话语（交代写作安排、宣告写作决策、代替读者判断、模糊回指）、`A1–A5` 摘要体裁（免责声明、来源交代、引注标记、图表指引、英文免责）、`B1–B3` 规范状态与证据等级。
+
+`A` 组只扫摘要区，起于「摘要」或「Abstract」，止于关键词行或任一标题行，正文里的同一句不报。这一组的由来：摘要长期只被检查「在不在」，从没被检查「写什么」；写进一句「未开展实验」「数据均取自文献」，前面各组检查一声不响，而这类句子恰是把文献综合稿说成实验报告、或反过来把实验稿说成二手材料最直接的一处。同组还查摘要带引注与图表编号，属于同类位置错误。
+
+```bash
+python skills/academic-paper-improvement/scripts/audit_manuscript.py 稿件.docx --brief
+# 稿名：FAIL 0／WARN 1｜汉字 8807｜S2
+```
+
+`--brief` 只打一行，供逐处改稿时复用：局部改写最容易引入旧稿里没有的违规，改一句跑一次，成本低于最后集中排错。
+
 ```bash
 python skills/academic-paper-improvement/scripts/selftest.py           # 逐条打印
 python skills/academic-paper-improvement/scripts/selftest.py --quiet   # 只打印失败项

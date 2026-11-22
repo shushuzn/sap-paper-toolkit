@@ -12,6 +12,7 @@
     A 检测器能触发：每条禁令给一个正样本，命中即通过
     B 不误报：干净句子与单个连接号「—」不得触发
     C 文档与代码对齐：禁令条数、形态条数、词表内容三处互相印证
+    D–H 逐组补充：解析层、编号误报边界、元话语、摘要体裁，各带正负样本
 
 用法：
     python selftest.py            # 全部用例，逐条打印
@@ -174,6 +175,12 @@ def part_c(mod):
     record("元话语类别名都在 SKILL.md 列举中", meta_names and not missing,
            "文档缺：%s（代码有、文档无，执行者不会去扫）" % missing)
 
+    # 摘要体裁同理：代码里有五类，文档不写就等于没约束
+    abs_names = [n for n, _, _ in getattr(mod, "ABSTRACT_GENRE", [])]
+    missing = [n for n in abs_names if n not in text]
+    record("摘要体裁类别名都在 SKILL.md 列举中", abs_names and not missing,
+           "文档缺：%s" % missing)
+
 
 # ---------- D 共用解析层 ----------
 def load_io():
@@ -304,6 +311,52 @@ def part_g(mod):
            not any(h["code"] == "S2" for h in r), "误报：%s" % r)
 
 
+def part_h(mod):
+    """摘要体裁：摘要只写问题、方法、结果、结论。
+
+    研究边界与证据等级（未做实验、仅为推断、尚待中试、数据均取自文献）
+    属方法学交代，位置在引言；写进摘要等于在读者看到论证之前先替自己
+    降级。这类句子通顺、不含禁令词、不是破折号、不构成对偶否定，前面
+    各组都不命中，若单列之前无人拦，本轮即由此漏过。
+    """
+    cases = [
+        ("A1", "免责声明", "本文未开展新的实验，结论属机理推断。"),
+        ("A2", "来源交代", "数据均取自公开文献与现行标准。"),
+        ("A3", "引注标记", "该判据的依据见文献[3]。"),
+        ("A4", "图表指引", "三条路线的差别见表 1。"),
+    ]
+    for code, label, sent in cases:
+        body = "## 摘要\n\n%s\n\n关键词：甲；乙\n" % sent
+        items = mod.check_abstract_genre(body)
+        record("H1 摘要%s命中 %s" % (label, code),
+               any(i["code"] == code for i in items), "未报：%s" % sent)
+
+    en = "## Abstract\n\nNo new experiments were performed.\n\nKey words: a\n"
+    record("H1 英文摘要免责命中 A5",
+           any(i["code"] == "A5" for i in mod.check_abstract_genre(en)),
+           "未报英文样本")
+
+    # 摘要范围须止于关键词行：正文里的同一句属正常交代，不得误伤
+    body = "## 摘要\n\n甲给出一个判据。\n\n关键词：甲\n\n# 1　引言\n\n本文未开展新的实验。\n"
+    record("H2 正文同句话不报 A1",
+           not mod.check_abstract_genre(body),
+           "误报：%s" % [i["detail"][:30] for i in mod.check_abstract_genre(body)])
+
+    # 对后续工作的展望是摘要的常规内容，不算免责
+    body = "## 摘要\n\n甲给出一个判据。进一步研究尚需开展。\n\n关键词：甲\n"
+    record("H3 未来工作表述不误报",
+           not mod.check_abstract_genre(body),
+           "误报：%s" % [i["detail"][:30] for i in mod.check_abstract_genre(body)])
+
+    record("H4 无摘要时不报", not mod.check_abstract_genre("# 1　引言\n\n正文。\n"),
+           "误报：%s" % [i["detail"][:30] for i in mod.check_abstract_genre("# 1　引言\n\n正文。\n")])
+
+    # 「摘要：正文」同段写法也要能取出正文
+    spans = mod.abstract_spans("摘要：甲给出一个判据。\n\n关键词：甲\n")
+    record("H5 同段冒号写法可取正文",
+           bool(spans) and "判据" in spans[0][2], "实为 %r" % (spans,))
+
+
 def main():
     ap = argparse.ArgumentParser(description="规则自检：文档列举与检测器实现是否一致")
     ap.add_argument("--quiet", action="store_true", help="只打印失败项与小结")
@@ -316,6 +369,7 @@ def main():
     part_d()
     part_e(mod)
     part_g(mod)
+    part_h(mod)
 
     failed = [(n, note) for n, ok, note in results if not ok]
     if not args.quiet:

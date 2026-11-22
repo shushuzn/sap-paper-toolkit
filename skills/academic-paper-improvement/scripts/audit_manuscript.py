@@ -11,6 +11,7 @@
 
 其余可规则判定项：字数口径、参考文献编号与引用覆盖、
 摘要与关键词、风险表述、数字与单位格式、条目化程度、图表编号、
+摘要体裁（A1 免责声明 / A2 来源交代 / A3 引注 / A4 图表指引 / A5 英文免责）、
 规范状态（B1 缺发布年 / B2 草案当现行）、证据等级虚报（B3 实测类措辞无引注）。
 
 不做语义判断（论证是否成立、引文是否错配由模型负责）。
@@ -19,6 +20,7 @@
     python audit_manuscript.py <manuscript.md|.txt|.docx>
         [--min-chars 3000] [--min-refs 25]
         [--count 汉字|word|char]     字数口径，默认 汉字
+        [--brief]                    只打一行汇总，供逐处改稿时复用
         [--json report.json]
 
 退出码：0 全部通过；1 存在 FAIL。
@@ -197,6 +199,84 @@ def check_front(body):
                             detail=f"{len(kws)} 个（宜 3~8 个）：{kws}"))
         else:
             out.append(dict(level=INFO, code="F3", title="关键词", detail=f"{len(kws)} 个"))
+    return out
+
+
+# 摘要体裁：摘要只交代问题、方法、结果、结论。研究边界与证据等级属方法学
+# 交代，读者要先看到论证才用得上；写进摘要等于在读者读到论证之前先替自己
+# 降级，也是综述与实验报告最常见的串味处。这类句子通顺、不含禁令词、不是
+# 破折号、不构成对偶否定，前面各组一组都不命中，故单列一组，且只在摘要
+# 范围内扫，正文里的同句话属正常交代，不得误伤。
+ABSTRACT_GENRE = [
+    ("免责声明", "A1",
+     r"未(开展|做|进行)(任何|新的?)?\s*(实验|试验|实测)"
+     r"|(仅|只)(为|是|属)[^。；\n]{0,8}(推断|推测|估算|假设)"
+     r"|(尚|仍|还)(待|需|须)[^。；\n]{0,10}(验证|检验|中试|放大|量产)"),
+    ("来源交代", "A2", r"(数据|资料|内容)(均|全部|皆|都)?\s*(取自|来自|源于)"),
+    ("引注标记", "A3", r"\[@[A-Za-z0-9_\-]+\]|\[\d+(?:\s*[,，\-–]\s*\d+)*\]"),
+    ("图表指引", "A4", r"(表|图)\s*\d{1,2}"),
+    ("英文免责", "A5", r"(?i)\bno (new )?experiments? (were|was) (performed|conducted|carried out)"
+                        r"|\ball data (are|were) (taken|drawn|collected) from"),
+]
+
+ABS_CN = re.compile(r"^[#\s]*摘\s*要\s*[：:]?\s*$")
+ABS_CN_INLINE = re.compile(r"^[#\s]*摘\s*要\s*[：:]\s*(\S.*)$")
+ABS_EN = re.compile(r"^[#\s]*Abstract\s*[：:]?\s*$", re.I)
+KEY_ANY = re.compile(r"^[#\s]*(关键词|关键字|Key\s*words?)\b", re.I)
+
+
+def abstract_spans(text):
+    """取出中文摘要与英文摘要的正文（不含标题与关键词），返回 [(类别, 行号, 文本)]。
+
+    源文件用 `## 摘要` 起头，成稿里是同名段落，两种写法都要认；摘要也可能
+    写成「摘要：正文」同段，此时取冒号之后。截止条件是关键词行、任一标题
+    行或文件结束，避免把引言一并扫进来。
+    """
+    lines = text.split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        s = lines[i].strip()
+        kind, inline = None, ""
+        if ABS_CN.match(s):
+            kind = "中文摘要"
+        elif ABS_CN_INLINE.match(s):
+            kind = "中文摘要"
+            inline = ABS_CN_INLINE.match(s).group(1)
+        elif ABS_EN.match(s):
+            kind = "英文摘要"
+        if kind is None:
+            i += 1
+            continue
+        buf = [inline] if inline else []
+        j = i
+        for j in range(i + 1, len(lines)):
+            t = lines[j].strip()
+            if not t:
+                continue
+            if KEY_ANY.match(t) or t.startswith("#"):
+                break
+            buf.append(t)
+        if buf:
+            out.append((kind, i + 1, "\n".join(buf)))
+        i = j + 1
+    return out
+
+
+def check_abstract_genre(text):
+    out = []
+    for kind, line, span in abstract_spans(text):
+        want_en = kind == "英文摘要"
+        for name, code, pat in ABSTRACT_GENRE:
+            if (code == "A5") != want_en:
+                continue
+            m = re.search(pat, span)
+            if not m:
+                continue
+            hint = ("移入引言：数据来源、推断性质、待验证程度各写一处即可"
+                    if code in ("A1", "A2", "A5") else
+                    "摘要不带引注与图表编号，正文相应处标注")
+            out.append(dict(level=WARN, code=code, title=f"摘要体裁·{name}",
+                            detail=f"{kind}（行{line}）：「{m.group(0)[:24]}」；{hint}"))
     return out
 
 
@@ -472,6 +552,8 @@ def main():
     ap.add_argument("--min-chars", type=int, default=3000)
     ap.add_argument("--min-refs", type=int, default=25)
     ap.add_argument("--count", choices=["hanzi", "word", "char"], default="hanzi")
+    ap.add_argument("--brief", action="store_true",
+                    help="只打一行汇总（FAIL／WARN 计数、字数、告警代码），逐处改稿时用")
     ap.add_argument("--json")
     args = ap.parse_args()
 
@@ -489,6 +571,7 @@ def main():
     items += check_metrics(body, args)
     items += check_refs(body, refs, args)
     items += check_front(body)
+    items += check_abstract_genre(text)
     items += check_language(body)
     items += check_format(text, source_mode)
     items += check_listy(body)
@@ -499,6 +582,12 @@ def main():
 
     n_fail = sum(1 for i in items if i["level"] == FAIL)
     n_warn = sum(1 for i in items if i["level"] == WARN)
+
+    if args.brief:
+        codes = " ".join(sorted({i["code"] for i in items if i["level"] in (FAIL, WARN)}))
+        print(f"{os.path.basename(args.path)}：FAIL {n_fail}／WARN {n_warn}"
+              f"｜汉字 {hanzi(body)}｜{codes or '无告警'}")
+        sys.exit(1 if n_fail else 0)
 
     print(f"# 机械核验报告：{os.path.basename(args.path)}")
     print(f"\n口径：字数={args.count}，文献下限={args.min_refs}，正文下限={args.min_chars}")
