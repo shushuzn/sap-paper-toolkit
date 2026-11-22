@@ -24,6 +24,7 @@
 | `paper_data.example.py` | 数据层模板：文献表与表格数据，供上面几个脚本读取 |
 | `skills/academic-paper-improvement/` | 写作与审校规则集：六条硬性禁令、证据四级、诊断流程、反编造核验、仓库卫生 |
 | `skills/academic-paper-improvement/scripts/selftest.py` | 规则自检：禁令列举与检测器词表、正则是否仍然一致 |
+| `skills/academic-paper-improvement/scripts/ai_traits.py` | 文体整齐度度量：句长变异、句首连接词、名词化后缀、段长均匀四项，**不给 AI 率** |
 | `skills/sync_skill.sh` | 把仓库里的 skill 镜像到本地安装位置，支持 install／check／diff／pull，skill 名自动识别 |
 | `.publish-deny.example` | 本地禁用词表模板：机构名、人员名这类无法通用判定的词，复制为 `.publish-deny` 后由钩子拦截 |
 | `.githooks/pre-commit` | 提交拦截：草稿备份、临时渲染件、超 2 MB 文件、skill 与安装位置漂移、规则自检、公开版禁用内容 |
