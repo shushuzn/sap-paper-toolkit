@@ -357,6 +357,72 @@ def part_h(mod):
            bool(spans) and "判据" in spans[0][2], "实为 %r" % (spans,))
 
 
+def part_i(mod):
+    """冗赘表述：同一内容被口语化地再说一遍。
+
+    这类文字没有错字、不含禁令词、不是破折号、不构成对偶否定、不属元话语、
+    不是条目化，前面各组一路放行。它的代价不只在文体：冗赘体往往伴随整段
+    复述，字数被虚增而信息量不变，因此与「删重复」是同一件事。
+    """
+    cases = [
+        ("虚化动词", "然后对单体配比进行了大量探索的工作。"),
+        ("口语缀词", "相较于纤维类材料来说，这类材料更易保持水分。"),
+        ("关联词叠用", "由于单体活性较高，所以该路线长期占主导。"),
+        ("空泛程度", "该系列在卫生用品方面得到了不断的拓展。"),
+        ("句式杂糅", "正是基于这样的结构使得外力下水分难以挤出。"),
+        ("使令口语", "交联条件的调整让网络结构逐渐走向可设计参数。"),
+    ]
+    for label, sent in cases:
+        items = mod.check_wordiness(sent)
+        record("I1 冗赘（%s）命中 T1" % label,
+               any(i["code"] == "T1" for i in items), "未报：%s" % sent)
+
+    # 学术文本的正常写法不得误伤
+    clean = [
+        "该量随温度上升。",
+        "交联剂加入后进行中和反应，体系黏度上升。",
+        "该材料系列长期占据主导地位。",
+        "由于离子项随盐浓度下降，吸水倍率随 S 升高而降低。",   # 单头因果
+        "这一结构特征使其在医用敷料领域得到持续扩展。",
+    ]
+    for i, sent in enumerate(clean, 1):
+        items = mod.check_wordiness(sent)
+        record("I2 正常句 %d 不误报" % i, not items,
+               "误报：%s" % [x["detail"][:40] for x in items])
+
+    # 整段复述：单句都合格，任何词表都不命中，只能靠段间重合度发现
+    a = ("高吸水性树脂由丙烯酸及盐类单体聚合而成，分子链上分布羧基与羧酸盐基等亲水基团，"
+         "经交联后形成不溶于水而可溶胀的三维网络，吸水后成为水凝胶，外力下水分不易被挤出。")
+    dup = ("这类材料由丙烯酸及其盐类单体聚合而成，在其分子链上有羧基、羧酸盐基等亲水基团，"
+           "经过交联形成了不溶于水但可以溶胀的三维网络，吸水后形成水凝胶，外力下不易被挤出。")
+    items = mod.check_wordiness(a + "\n" + dup)
+    record("I3 整段复述命中 T2", any(i["code"] == "T2" for i in items),
+           "未报：%s" % [i["detail"][:40] for i in items])
+
+    other = ("交联密度决定网络弹性回缩力，其上限由式（1）给出。渗透压项随离子强度上升而减弱，"
+             "盐水中吸水倍率因此下降，衰减指数在对离子项主导区为负三分之五。")
+    items = mod.check_wordiness(a + "\n" + other)
+    record("I4 相邻异段不误报 T2", not any(i["code"] == "T2" for i in items),
+           "误报：%s" % [i["detail"][:40] for i in items])
+
+    # 半角标点夹中文属格式，归 F4；英文句末的句点不得误报
+    items = mod.check_format("路线已确立[3];随后展开配比研究[4][5],结论见后[6][7].")
+    record("I5 半角标点夹中文命中 F4",
+           any(i["code"] == "F4" and "半角" in i["title"] for i in items),
+           "未报：%s" % items)
+    en = "No new experiments were performed. All data are taken from the literature."
+    record("I6 英文句点不误报 F4",
+           not any("半角" in i["title"] for i in mod.check_format(en)),
+           "误报：%s" % mod.check_format(en))
+
+    # 类别名须在 SKILL.md 列出，否则执行者不会去扫
+    doc = open(SKILL, encoding="utf-8").read()
+    names = [n for n, _ in getattr(mod, "WORDY", [])]
+    missing = [n for n in names if n not in doc]
+    record("I7 冗赘类别名都在 SKILL.md 列举中", names and not missing,
+           "文档缺：%s（代码有、文档无）" % missing)
+
+
 def main():
     ap = argparse.ArgumentParser(description="规则自检：文档列举与检测器实现是否一致")
     ap.add_argument("--quiet", action="store_true", help="只打印失败项与小结")
@@ -370,6 +436,7 @@ def main():
     part_e(mod)
     part_g(mod)
     part_h(mod)
+    part_i(mod)
 
     failed = [(n, note) for n, ok, note in results if not ok]
     if not args.quiet:

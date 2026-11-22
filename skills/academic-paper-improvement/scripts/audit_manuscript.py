@@ -389,6 +389,8 @@ def check_format(text, source_mode=False):
         ("叠字残留", r"的的|了了|是是", "编辑残留", FAIL),
         ("半角括号夹中文", r"\([^)]*[\u4e00-\u9fa5][^)]*\)", "中文语境宜用全角括号", WARN),
         ("英文与汉字间空格", r"[\u4e00-\u9fa5][A-Za-z]{2,}|[A-Za-z]{2,}[\u4e00-\u9fa5]", "中文夹用英文宜加空格", WARN),
+        ("半角标点夹中文", r"(?:[\u4e00-\u9fa5，。、；：！？）」”]|\])\s*[;,.](?=[\u4e00-\u9fa5]|$)",
+         "中文语境用全角「；，。」，半角标点多为改写残留", WARN),
         ("上标标记泄漏", r"[\^_]\{", "公式标记未渲染", FAIL),
     ]
     for name, pat, why, level in checks:
@@ -544,6 +546,87 @@ def check_claim_strength(text):
     return out
 
 
+# 冗赘表述：同一内容被口语化地再说一遍。这类文字没有错字、不含禁令词、
+# 不是破折号、不构成对偶否定、不属元话语，前面各组一路放行，但读起来是
+# 口述记录而非论文：判断句套「是……的」，动词退成「进行……」的动宾壳，
+# 因果两头都挂关联词，句末缀「来说」「的时候」。删去这些壳，句子信息量
+# 不变而字数下降，因此与「删重复」同属一类问题，单列一组。
+WORDY = [
+    ("虚化动词", r"(进行|加以|予以|给以)(了|着)?\s*(研究|探索|分析|讨论|总结|优化|改进|"
+                r"表征|测试|评价|考察|对比|比较|验证|放大|论述|阐述|论证|修正|调整|"
+                r"统计|计算|测定|观测)"
+                r"|(进行|开展)(了)?[^，。；！？\n]{0,10}的?工作"),
+    ("口语缀词", r"(来说|来讲)的?[，,]|的时候|的话[，,]|之类的|什么的"),
+    ("关联词叠用", r"(由于|因为)[^。；！？\n]{0,40}(所以|因此|因而|故)"
+                  r"|(虽然|尽管)[^。；！？\n]{0,40}(但是|但|却)"),
+    ("空泛程度", r"不断地|进一步地|更好地|尽可能地|卓有成效"
+                r"|得到了?(不断|迅速|蓬勃|长足)的?(发展|拓展|扩大|推广)"),
+    ("句式杂糅", r"正是(基于|通过|由于|因为)[^。；！？\n]{0,24}(使得|使它|使之)"
+                r"|是由于[^。；！？\n]{0,30}造成的|其原因(是)?因为"
+                r"|之所以[^。；！？\n]{0,30}是因为[^。；！？\n]{0,20}(造成的|的缘故)"),
+    ("使令口语", r"让[^。；！？\n]{0,10}(走向|变成|成为|实现|达到|更加)"),
+]
+
+def _repl_ratio(paras, min_len=60, threshold=0.25):
+    """相邻段落的 4-gram 覆盖率，用于识别同义复述。
+
+    整段复述不产生错句，单看每一句都合格，任何词表都不会命中；但读者会
+    在同一节读到两遍同样的内容。做法是去标点后取较短一段的四字窗口，统计
+    其中有多少落在另一段的窗口集合里。
+
+    阈值取 0.25 来自实测：一篇八千余字、三十八对相邻段的稿子，正常相邻段
+    的覆盖率最高 0.11、均值 0.02，同义词改写式的整段复述为 0.39。标点先
+    去掉，否则句读不同会把本可对上的窗口切断。段长下限取 60 汉字，低于此
+    值多为过渡句或式中说明，重复的代价不值得报警。
+    """
+    out = []
+    norm = [re.sub(r"[^\u4e00-\u9fa5A-Za-z0-9]", "", p) for p in paras]
+    grams = [set(p[i:i + 4] for i in range(len(p) - 3)) for p in norm]
+    for k in range(len(paras) - 1):
+        if hanzi(paras[k]) < min_len or hanzi(paras[k + 1]) < min_len:
+            continue
+        a_first = len(norm[k]) <= len(norm[k + 1])
+        short, other = (norm[k], k + 1) if a_first else (norm[k + 1], k)
+        g = set(short[i:i + 4] for i in range(len(short) - 3))
+        cov = len(g & grams[other]) / max(1, len(g))
+        if cov >= threshold:
+            out.append((k + 1, k + 2, cov, paras[k + 1][:24]))
+    return out
+
+
+def check_wordiness(text):
+    """T 组：冗赘表述与段落复述。WARN，逐处按句改写。
+
+    同一行里同类命中只记一次位置，计数仍按实际次数，避免长段被同一条规则
+    反复刷屏而掩盖其他类别。
+    """
+    out = []
+    lines = text.split("\n")
+    per = {}
+    for name, pat in WORDY:
+        rx = re.compile(pat)
+        for i, ln in enumerate(lines, 1):
+            ms = list(rx.finditer(ln))
+            if ms:
+                m = ms[0]
+                per[name] = (i, [x.group(0) for x in ms],
+                             ln[max(0, m.start() - 10): m.end() + 10])
+    if per:
+        parts = "、".join(f"{n} {len(w)} 处（{'／'.join(w[:3])}）"
+                         for n, (i, w, s) in per.items())
+        sample = "；".join(f"行{i}: …{s}…" for n, (i, w, s) in list(per.items())[:2])
+        out.append(dict(level=WARN, code="T1", title="冗赘表述",
+                        detail=f"{len(per)} 类：{parts}。{sample}。"
+                               f"删去壳、直接给动作与结论；判断句不带「是……的」，"
+                               f"因果只留一头关联词，动词不回退为「进行……」"))
+
+    for a, b, cov, head in _repl_ratio(para_list(text)):
+        out.append(dict(level=WARN, code="T2", title="段落复述",
+                        detail=f"段{a} 与段{b} 四字窗口重合 {cov:.0%}；"
+                               f"较短一段起于「{head}…」。同一内容只保留信息更全的一处"))
+    return out
+
+
 # ---------- 输出 ----------
 
 def main():
@@ -576,6 +659,7 @@ def main():
     items += check_format(text, source_mode)
     items += check_listy(body)
     items += check_metadiscourse(body)
+    items += check_wordiness(body)
     items += check_figs(body)
     items += check_standard_status(text)
     items += check_claim_strength(body)
